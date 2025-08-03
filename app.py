@@ -33,96 +33,85 @@ with st.sidebar:
     
     if process_button and uploaded_files:
         with st.spinner("Processing documents..."):
-            # Save uploaded files temporarily
             temp_dir = "temp_uploads"
             os.makedirs(temp_dir, exist_ok=True)
-            
+
             for uploaded_file in uploaded_files:
                 file_path = os.path.join(temp_dir, uploaded_file.name)
                 with open(file_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-            
-            # Process documents
+
             documents = document_processor.process_directory(temp_dir)
-            
-            # Create vector database
             retriever.create_vector_db(documents)
-            
-            # Clean up temp files
+
+            # Cleanup
             for file in os.listdir(temp_dir):
                 os.remove(os.path.join(temp_dir, file))
             os.rmdir(temp_dir)
-            
+
             st.success(f"Processed {len(uploaded_files)} documents with {len(documents)} chunks!")
 
-# Main chat interface
+# Chat session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display chat messages
+# Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-        
-        if message["role"] == "assistant" and "sources" in message:
+        if message["role"] == "assistant" and message.get("sources"):
             with st.expander("Sources and References"):
                 for source in message["sources"]:
                     st.markdown(f"""
-                    **Document:** {source['document']}  
-                    **Page:** {source['page']}  
-                    **Content:** {source['content']}  
+                    **Document:** {source.get('document', 'N/A')}  
+                    **Page:** {source.get('page', 'N/A')}  
+                    **Content:** {source.get('content', '')}  
                     """)
                     st.divider()
 
 # Chat input
 if prompt := st.chat_input("Ask a legal question..."):
-    # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # Display user message
+
     with st.chat_message("user"):
         st.markdown(prompt)
-    
-    # Display assistant response
+
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
-        
+
         try:
-            # Get response from retriever
             start_time = time.time()
             result = retriever.query(prompt)
             response_time = time.time() - start_time
-            
-            answer = result["answer"]
-            sources = result["sources"]
-            
-            # Add response time to answer
-            answer = f"{answer}\n\n_Generated in {response_time:.2f} seconds_"
-            
-            # Simulate streaming
+
+            # Extract response and sources
+            answer = result.get("answer", "No answer generated.")
+            sources = result.get("sources", [])
+
+            answer += f"\n\n_Generated in {response_time:.2f} seconds_"
+
             for chunk in answer.split():
                 full_response += chunk + " "
                 time.sleep(0.05)
                 message_placeholder.markdown(full_response + "▌")
             message_placeholder.markdown(full_response)
-            
-            # Add assistant response to chat history
+
             st.session_state.messages.append({
-                "role": "assistant", 
+                "role": "assistant",
                 "content": full_response,
                 "sources": sources
             })
-            
-            # Show sources
-            with st.expander("Sources and References"):
-                for source in sources:
-                    st.markdown(f"""
-                    **Document:** {source['document']}  
-                    **Page:** {source['page']}  
-                    **Content:** {source['content']}  
-                    """)
-                    st.divider()
-                    
+
+            if sources:
+                with st.expander("Sources and References"):
+                    for source in sources:
+                        st.markdown(f"""
+                        **Document:** {source.get('document', 'N/A')}  
+                        **Page:** {source.get('page', 'N/A')}  
+                        **Content:** {source.get('content', '')}  
+                        """)
+                        st.divider()
+
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
