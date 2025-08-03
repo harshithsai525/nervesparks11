@@ -7,7 +7,6 @@ from langchain_core.documents import Document
 from typing import List, Dict, Any
 import os
 
-
 class LegalRetriever:
     def __init__(self):
         self.embedding_model = HuggingFaceEmbeddings(
@@ -32,18 +31,20 @@ class LegalRetriever:
 
     def create_vector_db(self, documents: List[Document]) -> None:
         if not documents:
-            raise ValueError("No documents provided for vector DB creation.")
+            raise ValueError("No documents provided")
 
+        # ✅ Use in-memory only (no SQLite, no persist_directory)
         self.vector_db = Chroma.from_documents(
             documents=documents,
             embedding=self.embedding_model,
-            persist_directory=None  # Use in-memory vectorstore
+            persist_directory=None  # ✅ disables SQLite
         )
         self._initialize_qa_chain()
 
     def _initialize_qa_chain(self) -> None:
         if not self.vector_db:
-            raise RuntimeError("Vector store not initialized.")
+            raise RuntimeError("Vector DB not initialized")
+
         self.qa_chain = RetrievalQA.from_chain_type(
             llm=ChatGroq(
                 temperature=0,
@@ -65,11 +66,14 @@ class LegalRetriever:
     def query(self, question: str) -> Dict[str, Any]:
         if not question.strip():
             raise ValueError("Question cannot be empty.")
+
+        if not self.vector_db:
+            raise RuntimeError("No documents loaded. Upload a PDF and initialize the vector DB.")
+
         if not self.qa_chain:
-            raise RuntimeError("QA chain not initialized. Upload and process documents first.")
+            self._initialize_qa_chain()
 
         result = self.qa_chain({"query": question})
-
         return {
             "answer": result["result"],
             "sources": [
