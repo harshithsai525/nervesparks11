@@ -6,6 +6,7 @@ from langchain_groq import ChatGroq
 from langchain_core.documents import Document
 from typing import List, Dict, Any
 import os
+import tempfile
 
 class LegalRetriever:
     def __init__(self, persist_directory: str = "chroma_db"):
@@ -17,20 +18,17 @@ class LegalRetriever:
         self.persist_directory = persist_directory
         self.vector_db = None
         self.qa_chain = None
-
         self.prompt_template = """Answer based on legal context:
         {context}
 
         Question: {question}
 
         Provide detailed answer with citations:"""
-
         self.PROMPT = PromptTemplate(
             template=self.prompt_template,
             input_variables=["context", "question"]
         )
-
-        # Try to load vector DB only if it exists
+        # Try to load persisted vector DB if available
         self._auto_initialize()
 
     def _auto_initialize(self) -> bool:
@@ -40,21 +38,32 @@ class LegalRetriever:
                     persist_directory=self.persist_directory,
                     embedding_function=self.embedding_model
                 )
+                self._initialize_qa_chain()
                 return True
             except Exception as e:
                 print(f"[Warning] Failed to load existing vector DB: {e}")
         return False
 
-    def create_vector_db(self, documents: List[Document]) -> None:
+    def create_vector_db(self, documents: List[Document], persist: bool = True) -> None:
         if not documents:
             raise ValueError("No documents provided")
-        
-        self.vector_db = Chroma.from_documents(
-            documents=documents,
-            embedding=self.embedding_model,
-            persist_directory=self.persist_directory
-        )
-        self.vector_db.persist()
+
+        if persist:
+            self.vector_db = Chroma.from_documents(
+                documents=documents,
+                embedding=self.embedding_model,
+                persist_directory=self.persist_directory
+            )
+            self.vector_db.persist()
+        else:
+            # Use temp dir for non-persisted Chroma
+            temp_dir = tempfile.mkdtemp()
+            self.vector_db = Chroma.from_documents(
+                documents=documents,
+                embedding=self.embedding_model,
+                persist_directory=temp_dir
+            )
+
         self._initialize_qa_chain()
 
     def _initialize_qa_chain(self) -> None:
@@ -82,7 +91,7 @@ class LegalRetriever:
     def query(self, question: str) -> Dict[str, Any]:
         if not question.strip():
             raise ValueError("Question cannot be empty.")
-        
+
         if not self.vector_db:
             raise RuntimeError("No documents loaded. Upload a PDF and initialize the vector DB.")
         
