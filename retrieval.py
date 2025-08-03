@@ -3,13 +3,14 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain_groq import ChatGroq
-from typing import List, Dict, Any
 from langchain_core.documents import Document
+from langchain_community.document_loaders import DirectoryLoader
+from typing import List, Dict, Any
 import os
 
 class LegalRetriever:
     def __init__(self, persist_directory: str = "chroma_db"):
-        """Initialize with automatic database loading"""
+        """Initialize with automatic database loading or fallback to document loading"""
         self.embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={'device': 'cpu'},
@@ -18,9 +19,6 @@ class LegalRetriever:
         self.persist_directory = persist_directory
         self.vector_db = None
         self.qa_chain = None
-        
-        # Try to auto-load existing database
-        self._auto_initialize()
         
         self.prompt_template = """Answer based on legal context:
         {context}
@@ -33,6 +31,15 @@ class LegalRetriever:
             template=self.prompt_template,
             input_variables=["context", "question"]
         )
+        
+        # Try to auto-load existing database
+        if not self._auto_initialize():
+            print("[INFO] No existing vector DB found. Attempting to build from documents...")
+            documents = self._load_documents_from_directory("documents")
+            if documents:
+                self.create_vector_db(documents)
+            else:
+                print("[ERROR] No documents found in 'documents/' to build the vector DB.")
 
     def _auto_initialize(self) -> bool:
         """Try to load existing database automatically"""
@@ -47,10 +54,18 @@ class LegalRetriever:
                 print(f"Warning: Failed to load existing database - {str(e)}")
         return False
 
+    def _load_documents_from_directory(self, path: str) -> List[Document]:
+        """Load documents from a given directory"""
+        if not os.path.exists(path):
+            print(f"[ERROR] Documents folder '{path}' does not exist.")
+            return []
+        loader = DirectoryLoader(path)
+        return loader.load()
+
     def create_vector_db(self, documents: List[Document]) -> None:
         """Create new vector database"""
         if not documents:
-            raise ValueError("No documents provided")
+            raise ValueError("No documents provided to create the vector DB.")
             
         self.vector_db = Chroma.from_documents(
             documents=documents,
@@ -68,7 +83,7 @@ class LegalRetriever:
         self.qa_chain = RetrievalQA.from_chain_type(
             llm=ChatGroq(
                 temperature=0,
-                model_name="llama3-8b-8192",  # ✅ Updated model name
+                model_name="llama3-8b-8192",  # using supported model
                 groq_api_key=os.getenv("GROQ_API_KEY")
             ),
             chain_type="stuff",
@@ -91,7 +106,7 @@ class LegalRetriever:
         if not self.vector_db:
             raise RuntimeError(
                 "No legal documents loaded. "
-                "Please call create_vector_db() with documents first."
+                "Please add documents in the 'documents' folder."
             )
             
         if not self.qa_chain:
