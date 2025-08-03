@@ -1,9 +1,8 @@
-streamlit
 langchain
-langchain-groq
 langchain-community
-chromadb
-pypdf
+langchain-groq
+chromadb==0.4.22
 sentence-transformers
+pypdf
 python-dotenv
-pymupdf
+streamlit
